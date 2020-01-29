@@ -15,7 +15,7 @@
 #include <rpcws.hpp>
 
 #include "api.hpp"
-#include "binary_record.hpp"
+#include "binary_handler.hpp"
 
 struct CheckFailed : std::runtime_error {
   YAML::Mark mark;
@@ -54,7 +54,7 @@ int main() {
       wsio = std::make_unique<server_wsio>(std::move(ssl), address, ep);
     else
       wsio = std::make_unique<server_wsio>(address, ep);
-    auto binrecord = std::make_shared<binary_record>();
+    auto binrecord = std::make_shared<binary_handler>();
     RPC server(std::move(wsio), binrecord);
 
     prepare(server, binrecord, ep, apicfg);

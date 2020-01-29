@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
@@ -20,17 +21,16 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "syserror.hpp"
 #include "sysinfo/cpuinfo.h"
 #include "sysinfo/diskspace.h"
 #include "sysinfo/meminfo.h"
+#include "terminal_manager.hpp"
+#include "timer.hpp"
 
 using namespace rpc;
 namespace fs                            = std::filesystem;
 constexpr inline auto max_binary_packet = 16384;
-
-struct syserror : std::runtime_error {
-  syserror(std::string content) : runtime_error(content + ":" + strerror(errno)) {}
-};
 
 inline static json build_cpustat(sys::CPU const &cpuinfo) {
   return json({
@@ -39,37 +39,6 @@ inline static json build_cpustat(sys::CPU const &cpuinfo) {
       {"time", time(nullptr)},
   });
 }
-
-template <typename Callback> class Timer {
-  int timerfd;
-  std::shared_ptr<epoll> epfd;
-
-public:
-  Timer(unsigned sec, std::shared_ptr<epoll> ep, Callback callback) : epfd(std::move(ep)) {
-    timerfd                  = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
-    itimerspec timer         = {};
-    timer.it_value.tv_sec    = sec;
-    timer.it_interval.tv_sec = sec;
-    timerfd_settime(timerfd, 0, &timer, nullptr);
-
-    epfd->add(EPOLLIN | EPOLLERR, timerfd, epfd->reg([this, callback](const epoll_event &ev) {
-      if (ev.events & EPOLLERR) {
-        epfd->del(timerfd);
-      } else if (ev.events & EPOLLIN) {
-        char buffer[8];
-        read(timerfd, buffer, 8);
-        callback();
-      }
-    }));
-  }
-
-  ~Timer() {
-    epfd->del(timerfd);
-    close(timerfd);
-  }
-};
-
-template <typename Callback> Timer(int, std::shared_ptr<epoll>, Callback)->Timer<Callback>;
 
 // Fix this for gcc 9.2.0
 struct hack_clock : fs::file_time_type::clock {
@@ -117,18 +86,18 @@ template <> struct adl_serializer<fs::file_status> {
     });
   }
 };
-// struct stat
 } // namespace nlohmann
 
-uint32_t gen_blob_id() {
+uint32_t gen_blob_id(bool terminal = false) {
   static std::random_device rd;
   static std::default_random_engine e{rd()};
-  static std::uniform_int_distribution<uint32_t> dist(std::numeric_limits<uint32_t>::min());
+  static std::uniform_int_distribution<uint32_t> dist(
+      std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max() >> 1);
   return dist(e);
 }
 
 void prepare(
-    RPC &server, std::shared_ptr<binary_record> binrecord, std::shared_ptr<epoll> ep, api_config const &config) {
+    RPC &server, std::shared_ptr<binary_handler> binhandler, std::shared_ptr<epoll> ep, api_config const &config) {
   server.reg("ping", [](auto client, json input) -> json { return "pong"; });
 
   static sys::CPU cpuinfo{};
@@ -151,7 +120,7 @@ void prepare(
     server.emit("sysinfo.sysinfo", sys::getsysinfo());
     server.emit("sysinfo.diskspace", {{"path", config.monitor_path}, {"info", sys::getDiskSize(config.monitor_path)}});
   };
-  static auto timer = Timer{config.perid ?: 1, std::move(ep), callback};
+  static auto timer = Timer{config.perid ?: 1, ep, callback};
 
   server.reg("fs.ls", [&](auto client, json input) -> json {
     auto path = input[0].get<std::string>();
@@ -182,17 +151,13 @@ void prepare(
     client->send({shared_buffer, size + 4}, message_type::BINARY);
     return json::object({{"blob", ntohs(id)}});
   });
-  server.reg("fs.pwrite", [&, binrecord](std::shared_ptr<server_io::client> client, json input) -> json {
+  server.reg("fs.pwrite", [&, binhandler](std::shared_ptr<server_io::client> client, json input) -> json {
     auto path   = input[0].get<std::string>();
     auto offset = input[1].get<size_t>();
     auto blob   = input[2].get<uint32_t>();
-    auto &cache = binrecord->bincache[client];
-    auto it     = cache.find(blob);
-    if (it == cache.end()) throw std::invalid_argument("blob not found");
-    std::string data{std::move(it->second)};
-    cache.erase(it);
-    int file = open(path.c_str(), 0);
-    auto ret = pwrite(file, data.c_str(), data.size(), offset);
+    auto data   = binhandler->get(client, blob);
+    int file    = open(path.c_str(), 0);
+    auto ret    = pwrite(file, data.c_str(), data.size(), offset);
     if (ret == -1) throw syserror("pwrite");
     return ret;
   });
@@ -256,6 +221,39 @@ void prepare(
   server.reg("fs.lstat", [&](auto client, json input) -> json {
     auto path = input[0].get<std::string>();
     return fs::symlink_status(path);
+  });
+
+  static terminal_manager termmgr{binhandler, ep};
+  server.reg("shell.open_shell", [&, binhandler](auto client, json input) -> json {
+    auto shell = getenv("SHELL");
+    if (!shell) throw std::runtime_error("no SHELL env");
+    auto id = termmgr.alloc_terminal(shell, {"-l"});
+    binhandler->link_terminal(client, id);
+    return id;
+  });
+  server.reg("shell.open", [&, binhandler](auto client, json input) -> json {
+    auto program = input[0].get<std::string>();
+    auto args    = input[1].get<std::vector<std::string>>();
+    auto id      = termmgr.alloc_terminal(program, args);
+    binhandler->link_terminal(client, id);
+    return id;
+  });
+  server.reg("shell.resize", [&, binhandler](auto client, json input) -> json {
+    auto id  = input[0].get<std::uint32_t>();
+    auto row = input[1].get<std::uint16_t>();
+    auto col = input[2].get<std::uint16_t>();
+    if (binhandler->check_terminal_link(client, id)) termmgr.resize_terminal(id, {row, col});
+    return nullptr;
+  });
+  server.reg("shell.unlink", [&, binhandler](auto client, json input) -> json {
+    auto id = input[0].get<binary_handler::term_id>();
+    binhandler->unlink_terminal(client, id);
+    return nullptr;
+  });
+  server.reg("shell.close", [&, binhandler](auto client, json input) -> json {
+    auto id = input[0].get<binary_handler::term_id>();
+    if (binhandler->check_terminal_link(client, id)) termmgr.close(id);
+    return nullptr;
   });
 
   std::cerr << "init finished" << std::endl;

@@ -64,7 +64,9 @@ target_link_libraries(libcpuid INTERFACE
   ${ROOTFS}/lib/libcpuid.a
 )
 
+find_package(Boost REQUIRED)
+
 file(GLOB_RECURSE sources LIST_DIRECTORIES false CONFIGURE_DEPENDS src/*.cpp)
 add_executable(bedweb ${sources})
-target_link_libraries(bedweb libwsrpc libyaml libcpuid)
+target_link_libraries(bedweb libwsrpc libyaml libcpuid Boost::system util)
 set_property(TARGET bedweb PROPERTY CXX_STANDARD 17)
