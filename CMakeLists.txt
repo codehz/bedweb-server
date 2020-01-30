@@ -64,7 +64,7 @@ target_link_libraries(libcpuid INTERFACE
   ${ROOTFS}/lib/libcpuid.a
 )
 
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 
 file(GLOB_RECURSE sources LIST_DIRECTORIES false CONFIGURE_DEPENDS src/*.cpp)
 add_executable(bedweb ${sources})

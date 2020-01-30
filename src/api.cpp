@@ -10,9 +10,11 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <grp.h>
 #include <iostream>
 #include <json.hpp>
 #include <limits>
+#include <pwd.h>
 #include <random>
 #include <rpc.hpp>
 #include <stdexcept>
@@ -86,6 +88,33 @@ template <> struct adl_serializer<fs::file_status> {
     });
   }
 };
+template <> struct adl_serializer<passwd> {
+  inline static void to_json(rpc::json &j, const passwd &pd) {
+    j = json::object({
+        {"uid", pd.pw_uid},
+        {"gid", pd.pw_gid},
+        {"username", pd.pw_name},
+        {"realneme", pd.pw_gecos},
+        {"home", pd.pw_dir},
+        {"shell", pd.pw_shell},
+    });
+  }
+};
+template <> struct adl_serializer<group> {
+  inline static void to_json(rpc::json &j, const group &grp) {
+    auto members = rpc::json::array();
+    auto it      = grp.gr_mem;
+    while (*it) {
+      members.push_back(*it);
+      it++;
+    }
+    j = json::object({
+        {"gid", grp.gr_gid},
+        {"name", grp.gr_name},
+        {"members", members},
+    });
+  }
+};
 } // namespace nlohmann
 
 uint32_t gen_blob_id(bool terminal = false) {
@@ -112,6 +141,36 @@ void prepare(
   server.reg("sysinfo.diskspace", [&](auto client, json input) -> json {
     auto path = (input.size() == 1 && input[0].is_string()) ? input[0].get<std::string>() : config.monitor_path;
     return sys::getDiskSize(path);
+  });
+
+  server.reg("sysinfo.users", [&](auto client, json input) -> json {
+    passwd *pd;
+    auto ret = json::array();
+    setpwent();
+    while ((pd = getpwent())) ret.push_back(*pd);
+    endpwent();
+    return ret;
+  });
+  server.reg("sysinfo.groups", [&](auto client, json input) -> json {
+    group *grp;
+    auto ret = json::array();
+    setgrent();
+    while ((grp = getgrent())) ret.push_back(*grp);
+    endgrent();
+    return ret;
+  });
+  server.reg("sysinfo.current_user", [&](auto client, json input) -> json {
+    gid_t list[getgroups(0, nullptr)];
+    getgroups(sizeof(list) / sizeof(list[0]), list);
+    auto groups = json::array();
+    for (int i = 0; i < sizeof(list) / sizeof(list[0]); i++) groups.push_back(list[i]);
+    return json::object({
+        {"uid", getuid()},
+        {"euid", geteuid()},
+        {"gid", getgid()},
+        {"egid", getegid()},
+        {"groups", groups},
+    });
   });
 
   auto callback = [&] {
