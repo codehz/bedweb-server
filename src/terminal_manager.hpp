@@ -43,5 +43,5 @@ public:
   ID alloc_terminal(std::string const &program, std::vector<std::string> const &args);
   void resize_terminal(ID id, winsize size);
   void send_data(ID id, std::string_view data);
-  void close(ID id);
+  void close_terminal(ID id);
 };

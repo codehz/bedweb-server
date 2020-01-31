@@ -52,7 +52,7 @@ void binary_handler::on_close(term_id id) {
   } u;
   u.id = htonl(id);
   it->handler->send({u.buf, sizeof(uint32_t)}, rpc::message_type::BINARY);
-  termset.erase(it);
+  termset.get<term_id>().erase(it);
   orphan_term.erase(it->id);
 }
 

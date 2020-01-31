@@ -319,7 +319,7 @@ void prepare(
   });
   server.reg("shell.close", [&, binhandler](auto client, json input) -> json {
     auto id = input[0].get<binary_handler::term_id>();
-    if (binhandler->check_terminal_link(client, id)) termmgr.close(id);
+    if (binhandler->check_terminal_link(client, id)) termmgr.close_terminal(id);
     return nullptr;
   });
 

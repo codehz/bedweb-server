@@ -23,6 +23,7 @@ terminal_manager::terminal_manager(std::shared_ptr<callback> cb, std::shared_ptr
       read(sigfd, &info, sizeof info);
       auto pid = wait(nullptr);
       auto it  = pidset.get<pid_t>().find(pid);
+      if (it == pidset.get<pid_t>().end()) return;
       auto id  = it->id;
       this->ep->del(id);
       callback_ref->on_close(id);
@@ -50,8 +51,8 @@ terminal_manager::terminal_manager(std::shared_ptr<callback> cb, std::shared_ptr
   sigemptyset(&sigset);
   sigaddset(&sigset, SIGCHLD);
   sigprocmask(SIG_BLOCK, &sigset, NULL);
-  int sfd = signalfd(-1, &sigset, SFD_NONBLOCK | SFD_CLOEXEC);
-  ep->add(EPOLLIN | EPOLLERR, sfd, chld);
+  sigfd = signalfd(-1, &sigset, SFD_NONBLOCK | SFD_CLOEXEC);
+  ep->add(EPOLLIN | EPOLLERR, sigfd, chld);
 }
 
 const constexpr static winsize default_winsize = {80, 25};
@@ -83,7 +84,7 @@ void terminal_manager::send_data(terminal_manager::ID id, std::string_view data)
   write(id, data.data(), data.size());
 }
 
-void terminal_manager::close(terminal_manager::ID id) {
+void terminal_manager::close_terminal(terminal_manager::ID id) {
   auto it = pidset.get<ID>().find(id);
   if (it == pidset.get<ID>().end()) throw std::invalid_argument("id not found");
   pidset.get<ID>().erase(it);
