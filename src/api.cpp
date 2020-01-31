@@ -66,6 +66,14 @@ template <typename T> struct adl_serializer<std::optional<T>> {
       j = nullptr;
   }
 };
+template <> struct adl_serializer<fs::file_type> {
+  inline static void to_json(rpc::json &j, const fs::file_type &type) {
+#define detect(name) type == fs::file_type::name ? #name:
+    j = detect(block) detect(character) detect(directory) detect(fifo) detect(regular) detect(socket)
+        detect(symlink) "unknown";
+#undef detect
+  }
+};
 template <> struct adl_serializer<fs::directory_entry> {
   inline static void to_json(rpc::json &j, const fs::directory_entry &entry) {
     j = json::object({
