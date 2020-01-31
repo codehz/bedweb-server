@@ -10,7 +10,7 @@ static constexpr uint32_t magic = (1ul << 31);
 
 bool binary_handler::check_terminal_link(client_handler handler, terminal_manager::ID id) {
   auto it = termset.get<client_handler>().find(handler);
-  return it != termset.get<client_handler>().end();
+  return it != termset.get<client_handler>().end() && it->id == id;
 }
 
 void binary_handler::on_remove(client_handler handler) {
@@ -50,7 +50,7 @@ void binary_handler::on_close(term_id id) {
     uint32_t id;
     char buf[sizeof(uint32_t)];
   } u;
-  u.id = htonl(id);
+  u.id = htonl(id + magic);
   it->handler->send({u.buf, sizeof(uint32_t)}, rpc::message_type::BINARY);
   termset.get<term_id>().erase(it);
   orphan_term.erase(it->id);
@@ -69,6 +69,15 @@ void binary_handler::link_terminal(client_handler handler, terminal_manager::ID 
   termset.insert({id, std::move(handler)});
 }
 
+void binary_handler::link_orphan_terminal(client_handler handler, terminal_manager::ID id) {
+  if (orphan_term.count(id) == 0) throw std::invalid_argument("id is not orphan");
+  orphan_term.erase(id);
+  termset.insert({id, std::move(handler)});
+}
+
 void binary_handler::unlink_terminal(client_handler handler, terminal_manager::ID id) {
-  termset.get<term_id>().erase(id);
+  auto it = termset.get<term_id>().find(id);
+  if (it == termset.get<term_id>().end()) return;
+  termset.get<term_id>().erase(it);
+  orphan_term.insert(id);
 }

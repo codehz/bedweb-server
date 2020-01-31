@@ -26,9 +26,10 @@ struct binary_handler : rpc::RPC::callback, terminal_manager::callback {
 
   std::string get(client_handler, uint32_t);
   void link_terminal(client_handler, term_id);
+  void link_orphan_terminal(client_handler, term_id);
   void unlink_terminal(client_handler, term_id);
   bool check_terminal_link(client_handler, term_id);
-  std::set<term_id> get_orphan_term();
+  inline std::set<term_id> const &get_orphan_terminal() { return orphan_term; }
 
 private:
   std::map<client_handler, std::map<uint32_t, std::string>> bincache;

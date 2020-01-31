@@ -305,6 +305,14 @@ void prepare(
     binhandler->link_terminal(client, id);
     return id;
   });
+  server.reg("shell.open_id", [&, binhandler](auto client, json input) -> json {
+    auto id = input[0].get<terminal_manager::ID>();
+    binhandler->link_orphan_terminal(client, id);
+    return id;
+  });
+  server.reg("shell.get_orphan_list", [&, binhandler](auto client, json input) -> json {
+    return binhandler->get_orphan_terminal();
+  });
   server.reg("shell.resize", [&, binhandler](auto client, json input) -> json {
     auto id  = input[0].get<std::uint32_t>();
     auto row = input[1].get<std::uint16_t>();
