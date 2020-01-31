@@ -6,7 +6,7 @@
 #include <tuple>
 #include <unistd.h>
 
-static constexpr auto magic = (1ul << 31);
+static constexpr uint32_t magic = (1ul << 31);
 
 bool binary_handler::check_terminal_link(client_handler handler, terminal_manager::ID id) {
   auto it = termset.get<client_handler>().find(handler);
@@ -29,8 +29,8 @@ void binary_handler::on_binary(client_handler handler, std::string_view data) {
   std::memcpy(&id, data.data(), sizeof id);
   id = ntohl(id);
   data.remove_prefix(sizeof id);
-  if (id & magic) {
-    id ^= ~magic;
+  if (id >= magic) {
+    id -= magic;
     if (check_terminal_link(handler, id)) { write(id, data.data(), data.size()); }
   } else {
     bincache[handler][id] = data;

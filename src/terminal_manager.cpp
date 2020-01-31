@@ -13,6 +13,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+static constexpr auto magic = (1ul << 31);
+
 terminal_manager::terminal_manager(std::shared_ptr<callback> cb, std::shared_ptr<epoll> ep)
     : callback_ref(std::move(cb)), ep(ep) {
   chld     = ep->reg([this](const epoll_event &ev) {
@@ -34,8 +36,8 @@ terminal_manager::terminal_manager(std::shared_ptr<callback> cb, std::shared_ptr
     if (ev.events & EPOLLIN) {
       static char shared_buffer[32767 + sizeof(ID)];
       auto len = read(ev.data.fd, shared_buffer + sizeof(ID), sizeof shared_buffer - sizeof(ID));
-      ID nid   = htonl(ev.data.fd);
-      std::memcpy(&nid, shared_buffer, sizeof nid);
+      ID nid   = htonl(ev.data.fd | magic);
+      std::memcpy(shared_buffer, &nid, sizeof nid);
       if (len == -1) return;
       callback_ref->on_data(ev.data.fd, {shared_buffer, len + sizeof nid});
     } else {
