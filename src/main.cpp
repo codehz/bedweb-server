@@ -46,7 +46,7 @@ int main() {
       ssl       = std::make_unique<ssl_context>(cert, priv);
     }
     auto address        = check<std::string>(config, "listen");
-    apicfg.perid        = config["qeury_period"].as<unsigned>(1);
+    apicfg.period       = config["query_period"].as<unsigned>(1);
     apicfg.monitor_path = config["monitor_path"].as<std::string>("/");
     auto ep             = std::make_shared<epoll>();
     std::unique_ptr<server_wsio> wsio;

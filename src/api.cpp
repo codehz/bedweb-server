@@ -187,7 +187,7 @@ void prepare(
     server.emit("sysinfo.sysinfo", sys::getsysinfo());
     server.emit("sysinfo.diskspace", {{"path", config.monitor_path}, {"info", sys::getDiskSize(config.monitor_path)}});
   };
-  static auto timer = Timer{config.perid ?: 1, ep, callback};
+  static auto timer = Timer{config.period ?: 1, ep, callback};
 
   server.reg("fs.ls", [&](auto client, json input) -> json {
     auto path = input[0].get<std::string>();

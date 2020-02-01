@@ -6,7 +6,7 @@
 #include <variant>
 
 struct api_config {
-  unsigned perid;
+  unsigned period;
   std::string monitor_path;
 };
 
